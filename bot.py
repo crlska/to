@@ -346,7 +346,7 @@ async def cmd_undo(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"↩️ {len(undo['task_ids'])} tareas restauradas.")
     elif action == "delete":
         data = undo["data"]
-       data.pop("_score", None)
+        data.pop("_score", None)
         sb.table("tasks").insert(data).execute()
         await update.message.reply_text(f"↩️ *{data['title']}* restaurada.", parse_mode="Markdown")
     elif action == "edit":
