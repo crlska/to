@@ -111,7 +111,7 @@ def format_date(date_str: str | None) -> str:
 
 def format_task(t: dict, idx: int) -> str:
     """Format a task for display. idx = visual position."""
-    parts = [f"{idx}. {t['title']}"]
+    parts = [f"{idx}. [{t['task_id']}] {t['title']}"]
     if t.get("tag"):
         parts.append(f"@{t['tag']}")
     if t.get("project"):
@@ -409,6 +409,12 @@ async def post_init(app: Application):
 
 import asyncio
 
+import asyncio
+from aiohttp import web
+
+async def health(_request):
+    return web.Response(text="OK")
+
 async def main():
     app = Application.builder().token(TOKEN).post_init(post_init).build()
 
@@ -421,41 +427,42 @@ async def main():
     app.add_handler(CommandHandler("undo", cmd_undo))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
+    await app.initialize()
+    await app.start()
+
     if WEBHOOK_URL:
         logger.info(f"Starting webhook on port {PORT}")
-        await app.initialize()
-        await app.start()
         await app.updater.start_webhook(
             listen="0.0.0.0",
             port=PORT,
             url_path=TOKEN,
             webhook_url=f"{WEBHOOK_URL}/{TOKEN}",
         )
-        # Keep running
-        import signal
-        stop = asyncio.Event()
-        loop = asyncio.get_event_loop()
-        for s in (signal.SIGINT, signal.SIGTERM):
-            loop.add_signal_handler(s, stop.set)
-        await stop.wait()
-        await app.updater.stop()
-        await app.stop()
-        await app.shutdown()
     else:
-        logger.info("Starting polling mode")
-        await app.initialize()
-        await app.start()
+        logger.info("Starting polling + health server on port %s", PORT)
         await app.updater.start_polling()
-        import signal
-        stop = asyncio.Event()
-        loop = asyncio.get_event_loop()
-        for s in (signal.SIGINT, signal.SIGTERM):
-            loop.add_signal_handler(s, stop.set)
-        await stop.wait()
-        await app.updater.stop()
-        await app.stop()
-        await app.shutdown()
+        # Health check server so Render doesn't time out
+        server = web.Application()
+        server.router.add_get("/", health)
+        runner = web.AppRunner(server)
+        await runner.setup()
+        site = web.TCPSite(runner, "0.0.0.0", PORT)
+        await site.start()
+
+    import signal
+    stop = asyncio.Event()
+    loop = asyncio.get_event_loop()
+    for s in (signal.SIGINT, signal.SIGTERM):
+        loop.add_signal_handler(s, stop.set)
+    await stop.wait()
+
+    await app.updater.stop()
+    await app.stop()
+    await app.shutdown()
 
 
 if __name__ == "__main__":
     asyncio.run(main())
+
+
+
