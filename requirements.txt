@@ -1,2 +1,3 @@
 python-telegram-bot==21.10
 supabase==2.13.0
+aiohttp==3.11.12
