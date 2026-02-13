@@ -407,7 +407,9 @@ async def post_init(app: Application):
     ])
 
 
-def main():
+import asyncio
+
+async def main():
     app = Application.builder().token(TOKEN).post_init(post_init).build()
 
     app.add_handler(CommandHandler("start", cmd_start))
@@ -421,16 +423,39 @@ def main():
 
     if WEBHOOK_URL:
         logger.info(f"Starting webhook on port {PORT}")
-        app.run_webhook(
+        await app.initialize()
+        await app.start()
+        await app.updater.start_webhook(
             listen="0.0.0.0",
             port=PORT,
             url_path=TOKEN,
             webhook_url=f"{WEBHOOK_URL}/{TOKEN}",
         )
+        # Keep running
+        import signal
+        stop = asyncio.Event()
+        loop = asyncio.get_event_loop()
+        for s in (signal.SIGINT, signal.SIGTERM):
+            loop.add_signal_handler(s, stop.set)
+        await stop.wait()
+        await app.updater.stop()
+        await app.stop()
+        await app.shutdown()
     else:
         logger.info("Starting polling mode")
-        app.run_polling()
+        await app.initialize()
+        await app.start()
+        await app.updater.start_polling()
+        import signal
+        stop = asyncio.Event()
+        loop = asyncio.get_event_loop()
+        for s in (signal.SIGINT, signal.SIGTERM):
+            loop.add_signal_handler(s, stop.set)
+        await stop.wait()
+        await app.updater.stop()
+        await app.stop()
+        await app.shutdown()
 
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())
