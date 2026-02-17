@@ -408,14 +408,17 @@ async def post_init(app: Application):
 
 
 import asyncio
-
-import asyncio
 from aiohttp import web
+
 
 async def health(_request):
     return web.Response(text="OK")
 
-async def main():
+
+def main():
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+
     app = Application.builder().token(TOKEN).post_init(post_init).build()
 
     app.add_handler(CommandHandler("start", cmd_start))
@@ -427,42 +430,35 @@ async def main():
     app.add_handler(CommandHandler("undo", cmd_undo))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
-    await app.initialize()
-    await app.start()
-
     if WEBHOOK_URL:
         logger.info(f"Starting webhook on port {PORT}")
-        await app.updater.start_webhook(
+        loop.run_until_complete(app.initialize())
+        loop.run_until_complete(app.start())
+        loop.run_until_complete(app.updater.start_webhook(
             listen="0.0.0.0",
             port=PORT,
             url_path=TOKEN,
             webhook_url=f"{WEBHOOK_URL}/{TOKEN}",
-        )
+        ))
+        loop.run_forever()
     else:
         logger.info("Starting polling + health server on port %s", PORT)
-        await app.updater.start_polling()
-        # Health check server so Render doesn't time out
-        server = web.Application()
-        server.router.add_get("/", health)
-        runner = web.AppRunner(server)
-        await runner.setup()
-        site = web.TCPSite(runner, "0.0.0.0", PORT)
-        await site.start()
+        loop.run_until_complete(app.initialize())
+        loop.run_until_complete(app.start())
+        loop.run_until_complete(app.updater.start_polling())
 
-    import signal
-    stop = asyncio.Event()
-    loop = asyncio.get_event_loop()
-    for s in (signal.SIGINT, signal.SIGTERM):
-        loop.add_signal_handler(s, stop.set)
-    await stop.wait()
+        # Health check for Render
+        async def start_health():
+            server = web.Application()
+            server.router.add_get("/", health)
+            runner = web.AppRunner(server)
+            await runner.setup()
+            await web.TCPSite(runner, "0.0.0.0", PORT).start()
 
-    await app.updater.stop()
-    await app.stop()
-    await app.shutdown()
+        loop.run_until_complete(start_health())
+        logger.info("Bot running. Health check active.")
+        loop.run_forever()
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
-
-
-
+    main()
